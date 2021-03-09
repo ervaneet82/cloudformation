@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t3.micro, t2.micro,t2.medium,t2.large]
+    ConstraintDescription: must be a valid EC2 instance type.
+  LatestAmiId:
+    Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  NetworkStackName:
+    Type: String
+    Default: NetworkStack
+  StackName:
+    Type: String
+    Default: securitygroups
+
+Resources:
+  Linux:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - install_base
+        install_base:
+          packages:
+            yum:
+              bash-completion: []
+              telnet: []
+              wget: []
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                interval=1
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.Server.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource Server
+                runas=root
+            services:
+              sysvinit:
+                cfn-hup:
+                  enabled: true
+                  ensureRunning: true
+    Properties:
+      InstanceType: !Ref 'InstanceType'
+      SubnetId:
+        Fn::ImportValue:
+          !Sub "${NetworkStackName}-public-subnet1"
+      KeyName: !Ref 'KeyName'
+      ImageId: !Ref 'LatestAmiId'
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Sub "${StackName}-sgid"
+      # BlockDeviceMappings:
+      #   -
+      #     DeviceName: /dev/sda1
+      #     Ebs:
+      #       VolumeSize: 10
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum -y update
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource web --region ${AWS::Region}
+
+Outputs:
+  PublicIP:
+    Value:
+      Fn::GetAtt:
+        - Linux
+        - PublicIp
+    Description: Server's PublicIp Address
+  PublicIP:
+    Value:
+      Fn::GetAtt:
+        - Linux
+        - PublicDnsName
+    Description: Server's PublicIp Address
+  PublicIP:
+    Value:
+      Fn::GetAtt:
+        - Linux
+        - PrivateIp
+    Description: Server's PrivateIP Address
+  AZ:
+    Value:
+      Fn::GetAtt:
+        - Linux
+        - AvailabilityZone
+    Description: Server's Availability Zone
