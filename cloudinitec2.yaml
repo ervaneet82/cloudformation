@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Image Builder
+Parameters:
+  KeyPairName:
+    Description: Select the key name from the list
+    Type: AWS::EC2::KeyPair::KeyName
+  VpcId:
+    Description: Select the subnet
+    Type: AWS::EC2::VPC::Id
+  SubnetID:
+    Description: Select the subnet
+   # Type: AWS::EC2::Subnet::Id
+    Type: AWS::EC2::Subnet::Id
+  SGParameter:
+    Description: Please appropriate security groups
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  Bucket:
+    Description: Bucket Name
+    Type: String
+    Default: vanet9097734
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+    - t3.micro
+    - t3.medium
+  ImageId:
+    Description: AMI ID
+    Type: String
+    Default: ami-048ff3da02834afdc
+Resources:
+  # S3Bucket:
+  #   Type: AWS::S3::Bucket
+  #   Description: Creating Amazon S3 bucket from CloudFormation
+  #   Properties:
+  #     BucketName: !Ref Bucket
+  DemoInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: demo-ec2-instance-profile
+      Path: /
+      Roles:
+       - !Ref MyTestRole
+  MyTestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Principal:
+              Service: ec2.amazonaws.com
+            Effect: Allow
+            Sid: ''
+      Policies:
+        - PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - 's3:GetObject'
+                Resource: !Sub 'arn:aws:s3:::${Bucket}/*'
+                Effect: Allow
+          PolicyName: AuthenticatedS3GetObjects
+  MyInstance:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: S3
+          buckets:
+            - !Sub ${Bucket}
+          roleName: !Ref MyTestRole
+      AWS::CloudFormation::Init:
+        config:
+          files:
+             /home/ec2-user/test.py:
+               source: !Sub
+                 - >-
+                   https://${BucketName}.${S3Region}.amazonaws.com/test.py
+                 - BucketName: !Ref Bucket
+                   S3Region: !Sub 's3.${AWS::Region}'
+               mode: '000755'
+               authentication: S3AccessCreds
+    Properties:
+      IamInstanceProfile: !Ref DemoInstanceProfile
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds: !Split
+        - ','
+        - !Join
+            - ','
+            - !Ref SGParameter
+      SubnetId: !Ref SubnetID
+      UserData:
+        "Fn::Base64":
+          !Sub |
+            #!/bin/bash -xe
+            # Get latest CloudFormation package - These packages change frequently
+            yum update -y aws-cfn-bootstrap
+            # Start cfn-init to Install all Metadata content (pacakges, sources, files, commands and services )
+            /opt/aws/bin/cfn-init -s ${AWS::StackId} -r MyInstance --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
+            # Signal the status from cfn-init
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource MyInstance --region ${AWS::Region}
+            # Start cfn-hup daemon so that it will keep listening to any changes to EC2 Instance Metadata.
+            /opt/aws/bin/cfn-hup || error_exit 'Failed to start cfn-hup'
