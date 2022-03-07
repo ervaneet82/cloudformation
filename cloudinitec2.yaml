@@ -9,7 +9,6 @@ Parameters:
     Type: AWS::EC2::VPC::Id
   SubnetID:
     Description: Select the subnet
-   # Type: AWS::EC2::Subnet::Id
     Type: AWS::EC2::Subnet::Id
   SGParameter:
     Description: Please appropriate security groups
@@ -81,6 +80,11 @@ Resources:
                    S3Region: !Sub 's3.${AWS::Region}'
                mode: '000755'
                authentication: S3AccessCreds
+          commands:
+            metadata:
+              command: "pip3 install ec2-metadata"
+            runcommand:
+              command: python3 /home/ec2-user/test.py
     Properties:
       IamInstanceProfile: !Ref DemoInstanceProfile
       ImageId: !Ref ImageId
