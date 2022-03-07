@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Image Builder
+Parameters:
+  MyKeyName:
+    Description: Select the key name from the list
+    Type: AWS::EC2::KeyPair::KeyName
+  VpcId:
+    Description: Select the subnet
+    Type: AWS::EC2::VPC::Id
+  SubnetID:
+    Description: Select the subnet
+    Type: AWS::EC2::Subnet::Id
+  # Type: 'List<AWS::EC2::Subnet::Id>'
+  # SGParameter:
+  #   Description: Please appropriate security groups
+  #   Type: List<AWS::EC2::SecurityGroup::Id>
+  Bucket:
+    Description: Bucket Name
+    Type: String
+    Default: vaneet90034934
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Description: Creating Amazon S3 bucket from CloudFormation
+    Properties:
+      BucketName: !Ref Bucket
+  BuilderSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: my new SSH SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+  DemoInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: demo-ec2-instance-profile
+      Path: /
+      Roles:
+       - !Ref MyTestRole
+  MyTestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Role to provide access to S3
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      RoleName: ImageBuilderRole
+  MyComponent:
+    Type: 'AWS::ImageBuilder::Component'
+    Properties:
+      Name: 'mycomponent'
+      Platform: 'Linux'
+      Version: '1.0.0'
+      Description: 'description'
+      ChangeDescription: 'change-description'
+      SupportedOsVersions:
+        - 'Amazon Linux 2'
+      Data: |
+        name: HelloWorldTestingLinuxDoc - InlineData
+        description: This is hello world testing doc
+        schemaVersion: 1.0
+
+        phases:
+          - name: build
+            steps:
+              - name: HelloWorldStep
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - echo "Hello World! Build."
+          - name: validate
+            steps:
+              - name: HelloWorldStep
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - echo "Hello World! Validate."
+          - name: test
+            steps:
+              - name: HelloWorldStep
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - echo "Hello World! Test."
+  ImageRecipe:
+    Type: 'AWS::ImageBuilder::ImageRecipe'
+    Properties:
+      Name: 'recipe'
+      Version: '1.0.0'
+      ParentImage: 'ami-048ff3da02834afdc'
+      Description: 'description'
+      Components:
+        - ComponentArn: !Ref MyComponent
+  DistributionConfiguration:
+    Type: 'AWS::ImageBuilder::DistributionConfiguration'
+    Properties:
+      Name: 'hello'
+      Description: 'description'
+      Distributions:
+        - Region: 'us-east-1'
+          AmiDistributionConfiguration:
+            Name: 'hello-{{ imagebuilder:buildDate }}'
+            Description: 'description'
+  InfrastructureConfiguration:
+    Type: 'AWS::ImageBuilder::InfrastructureConfiguration'
+    Properties:
+      Name: 'myInfrastructureConfig'
+      InstanceProfileName: !Ref DemoInstanceProfile
+      Description: 'description'
+      InstanceTypes:
+        - 't3.micro'
+        - 't3.medium'
+      KeyPair: !Ref MyKeyName
+      Logging:
+        S3Logs:
+          S3BucketName: !Ref S3Bucket
+      TerminateInstanceOnFailure: true
+      SecurityGroupIds:
+        - !Ref BuilderSecurityGroup
+      SubnetId: !Ref SubnetID
+  ImagePipelineAllParameters:
+    Type: 'AWS::ImageBuilder::ImagePipeline'
+    Properties:
+      Name: 'image-pipeline-name'
+      Description: 'description'
+      ImageRecipeArn: !GetAtt ImageRecipe.Arn
+      InfrastructureConfigurationArn: !GetAtt InfrastructureConfiguration.Arn
+      DistributionConfigurationArn: !GetAtt DistributionConfiguration.Arn
+      ImageTestsConfiguration:
+        ImageTestsEnabled: false
+        TimeoutMinutes: 90
+      # Schedule:
+      #   ScheduleExpression: 'cron(0 0 * * ? *)'
+      #   PipelineExecutionStartCondition: 'EXPRESSION_MATCH_ONLY'
+      # Status: 'DISABLED'
