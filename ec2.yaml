@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Image Builder
+Parameters:
+  KeyPairName:
+    Description: Select the key name from the list
+    Type: AWS::EC2::KeyPair::KeyName
+  VpcId:
+    Description: Select the subnet
+    Type: AWS::EC2::VPC::Id
+  SubnetID:
+    Description: Select the subnet
+    Type: AWS::EC2::Subnet::Id
+  SGParameter:
+    Description: Please appropriate security groups
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  Bucket:
+    Description: Bucket Name
+    Type: String
+    Default: vaneet90034934
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+    - t3.micro
+    - t3.medium
+  ImageId:
+    Description: AMI ID
+    Type: String
+    Default: ami-07eaf2ea4b73a54f6
+Resources:
+  # S3Bucket:
+  #   Type: AWS::S3::Bucket
+  #   Description: Creating Amazon S3 bucket from CloudFormation
+  #   Properties:
+  #     BucketName: !Ref Bucket
+  DemoInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: demo-ec2-instance-profile
+      Path: /
+      Roles:
+       - !Ref MyTestRole
+  MyTestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Principal:
+              Service: ec2.amazonaws.com
+            Effect: Allow
+            Sid: ''
+      Policies:
+        - PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - 's3:GetObject'
+                Resource: !Sub 'arn:aws:s3:::${Bucket}/*'
+                Effect: Allow
+          PolicyName: AuthenticatedS3GetObjects
+  MyInstance:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: S3
+          buckets:
+            - !Sub ${Bucket}
+          roleName: !Ref MyTestRole
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            /home/ec2-user/test.py:
+              source: !Sub
+                - >-
+                  https://${BucketName}.${S3Region}.amazonaws.com/test.py
+                - BucketName: !Ref Bucket
+                  S3Region: !Sub 's3.${AWS::Region}'
+              mode: '000755'
+              authentication: S3AccessCreds
+            /home/ec2-user/env.sh:
+              content: !Sub |
+                #!/bin/bash
+                export ACCOUNTID='${AWS::AccountId}'
+              mode: '000755'
+              owner: 'ec2-user'
+              group: 'ec2-user'
+          commands:
+            test:
+              command: "pip3 install flask"
+            test1:
+              command: "source /home/ec2-user/env.sh"
+    Properties:
+      IamInstanceProfile: !Ref DemoInstanceProfile
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds: !Split
+        - ','
+        - !Join
+            - ','
+            - !Ref SGParameter
+      SubnetId: !Ref SubnetID
+      UserData:
+        "Fn::Base64":
+          !Sub |
+            #!/bin/bash -xe
+            yum update -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init -s ${AWS::StackId} -r MyInstance --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
